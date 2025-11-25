@@ -2,7 +2,7 @@
 # start_stack.sh: RunPod Native Stack (Ollama + WebUI + ComfyUI)
 
 # 1. GENERAR CLAVE DE SEGURIDAD (Automático)
-# Genera una clave segura al vuelo para esta sesión
+# Genera una clave segura para esta sesión
 export WEBUI_SECRET_KEY=$(openssl rand -base64 32)
 echo "🔐 Clave de sesión generada."
 
@@ -56,8 +56,14 @@ fi
 
 # C) Iniciar Open WebUI (Puerto 3000 para Proxy RunPod)
 export PORT=3000
+export HOST=0.0.0.0  # <--- NO TOCAR
 open-webui serve > webui.log 2>&1 &
 PID_WEBUI=$!
+
+echo "✅ Open WebUI iniciado en https://{POD_ID}-3000.proxy.runpod.net"
+# ...
+
+
 
 echo "✅ Open WebUI corriendo."
 echo "🔗 Acceso: https://{POD_ID}-3000.proxy.runpod.net"
