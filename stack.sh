@@ -1,56 +1,67 @@
 #!/bin/bash
+# start_stack.sh: RunPod Native Stack (Ollama + WebUI + ComfyUI)
 
-# 1. INSTALAR OLLAMA
+# 1. GENERAR CLAVE DE SEGURIDAD (Automático)
+# Genera una clave segura al vuelo para esta sesión
+export WEBUI_SECRET_KEY=$(openssl rand -base64 32)
+echo "🔐 Clave de sesión generada."
+
+# 2. INSTALAR OLLAMA
 if ! command -v ollama &> /dev/null; then
     echo "🦙 Instalando Ollama..."
     curl -fsSL https://ollama.com/install.sh | sh
 fi
 
-# 2. INSTALAR OPEN WEBUI (Via Python pip, sin Docker)
-# Esto requiere Python 3.11, que RunPod suele tener.
+# 3. INSTALAR OPEN WEBUI + HF TRANSFER
 if ! pip show open-webui &> /dev/null; then
-    echo "🌐 Instalando Open WebUI..."
-    pip install open-webui
-    # Instalar motor de audio local (opcional, para voz rápida)
-    # pip install faster-whisper
+    echo "🌐 Instalando Open WebUI + Dependencias..."
+    pip install open-webui hf_transfer
+    # pip install faster-whisper # Descomentar para voz local mejorada
 fi
 
-# 3. INSTALAR COMFYUI (Si lo necesitas)
+# 4. INSTALAR COMFYUI
 if [ ! -d "ComfyUI" ]; then
     echo "🎨 Clonando ComfyUI..."
     git clone https://github.com/comfyanonymous/ComfyUI
     pip install -r ComfyUI/requirements.txt
 fi
 
-# 4. CONFIGURAR ENTORNO
+# 5. CONFIGURAR ENTORNO
 export OLLAMA_HOST="0.0.0.0:11434"
-export WEBUI_SECRET_KEY="tu_clave_secreta_aqui"
-export DATA_DIR="$HOME/webui_data" # Persistencia para WebUI
-
-# Crear directorio de datos si no existe
+export HF_HUB_ENABLE_HF_TRANSFER=1
+export DATA_DIR="/workspace/webui_data" # Datos persistentes en el volumen
 mkdir -p "$DATA_DIR"
 
-# 5. INICIAR SERVICIOS (En background)
+# 6. INICIAR SERVICIOS
 echo "🚀 Iniciando Servicios..."
 
-# Iniciar Ollama
+# A) Iniciar Ollama
 ollama serve > ollama.log 2>&1 &
 PID_OLLAMA=$!
 echo "✅ Ollama iniciado (PID: $PID_OLLAMA)"
 
-# Iniciar ComfyUI (Puerto 8188)
-# (cd ComfyUI && python main.py --listen 0.0.0.0 --port 8188) > comfy.log 2>&1 &
+# B) Esperar a Ollama y bajar modelo ligero
+echo "⏳ Esperando a Ollama..."
+timeout 30 bash -c 'until echo > /dev/tcp/localhost/11434; do sleep 1; done'
 
-# Iniciar Open WebUI (Puerto 8080 por defecto, lo mapeamos al 3000 si quieres)
-# Open WebUI usa el puerto 8080 por defecto en pip install.
-# RunPod espera 3000 para el proxy web.
+if [ $? -eq 0 ]; then
+    # Chequear si ya tenemos el modelo para no bajarlo siempre
+    if ! ollama list | grep -q "llama3.2:1b"; then
+        echo "⬇️ Descargando Llama 3.2 1B..."
+        ollama pull llama3.2:1b
+    fi
+else
+    echo "⚠️ Ollama no respondió a tiempo."
+fi
+
+# C) Iniciar Open WebUI (Puerto 3000 para Proxy RunPod)
 export PORT=3000
 open-webui serve > webui.log 2>&1 &
 PID_WEBUI=$!
-echo "✅ Open WebUI iniciado en puerto $PORT (PID: $PID_WEBUI)"
 
-echo "📜 Logs disponibles en: ollama.log y webui.log"
-echo "⚠️  Para detener todo: kill $PID_OLLAMA $PID_WEBUI"
+echo "✅ Open WebUI corriendo."
+echo "🔗 Acceso: https://{POD_ID}-3000.proxy.runpod.net"
+echo "📜 Logs: tail -f webui.log"
 
-# Mantener el script corriendo para ver logs (opcional)
+# Mantener vivo
 tail -f webui.log
